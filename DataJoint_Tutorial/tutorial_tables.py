@@ -48,3 +48,59 @@ class Neuron(dj.Imported):
        self.insert1(key)
 
        print('Populated a neuron for {mouse_id} on {session_date}'.format(**key))
+        
+@schema
+class ActivityStatistics(dj.Computed):
+    definition = """
+    -> Neuron
+    ---
+    mean: float    # mean activity
+    stdev: float   # standard deviation of activity
+    max: float     # maximum activity
+    """
+
+    def _make_tuples(self, key):
+        activity = (Neuron() & key).fetch1('activity')    # fetch activity as NumPy array
+
+        # compute various statistics on activity
+        key['mean'] = activity.mean()   # compute mean
+        key['stdev'] = activity.std()   # compute standard deviation
+        key['max'] = activity.max()     # compute max
+        self.insert1(key)
+        print('Computed statistics for mouse_id {mouse_id} session_date {session_date}'.format(**key))
+        
+@schema
+class SpikeDetectionParam(dj.Lookup): # values for a computation rather than raw data
+    definition = """
+    sdp_id: int       # unique id for spike detection parameter set
+    ---
+    threshold: float  # threshold for spike detection
+    """        
+        
+@schema
+class Spikes(dj.Computed):
+    definition = """
+    # spikes for a neuron at a certain threshold
+    -> Neuron
+    -> SpikeDetectionParam
+    ---
+    spikes: longblob     # detected spikes
+    count: int           # total number of detected spikes
+    """
+
+    def _make_tuples(self, key):
+        print('Populating for: ', key)
+
+        activity = (Neuron() & key).fetch1('activity')
+        threshold = (SpikeDetectionParam() & key).fetch1('threshold')
+
+        above_thrs = (activity > threshold).astype(int)   # find activity above threshold
+        rising = (np.diff(above_thrs) > 0).astype(int)   # find rising edge of crossing threshold
+        spikes = np.hstack((0, rising))    # prepend 0 to account for shortening due to np.diff
+        count = spikes.sum()   # compute total spike counts
+        print('Detected {} spikes!\n'.format(count))
+
+        # save results and insert
+        key['spikes'] = spikes
+        key['count'] = count
+        self.insert1(key)
