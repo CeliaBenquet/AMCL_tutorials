@@ -30,8 +30,12 @@ parser.add_argument('--training', action = 'store_true', default = False,
 parser.add_argument('--testing', action = 'store_true', default = False, 
                         help = 'Testing the model on the MNIST dataset')
 
+parser.add_argument('--saving_model', action = 'store_true', default = False, 
+                        help = 'Saving the model once it was trained')
+
 args = parser.parse_args()
 
+model_path = '/Users/celiabenquet/OneDrive - epfl.ch/Documents/MASTER/MA4/Mathis/AMCL_tutorials/VAE_test/model/model.pth'
 
 # learning parameters
 epochs = args.epochs
@@ -42,7 +46,9 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 train_data, val_data, train_loader, val_loader = prepare_data(batch_size)
 
 # Initialization
-model = net.LinearVAE().to(device)
+features = 16
+sample1 = torch.randn(64, features) # for generation 
+model = net.LinearVAE(features).to(device)
 criterion = nn.BCELoss(reduction='sum') # to calculate reconstruction loss
 
 
@@ -88,6 +94,9 @@ for epoch in range(epochs):
         print(f"Train Loss: {train_epoch_loss:.4f}")
     
     if args.testing: 
+        if not(args.training): 
+            model.load_state_dict(torch.load(model_path))
+        
         model.eval()
         running_loss = 0.0
 
@@ -97,18 +106,27 @@ for epoch in range(epochs):
                 data = data.to(device)
                 data = data.view(data.size(0), -1)
 
+                # reconstruction 
                 reconstruction, mu, logvar = model(data)
-
                 bce_loss = criterion(reconstruction, data)
                 loss = final_loss(bce_loss, mu, logvar)
                 running_loss += loss.item()
+
+                # generation
+                generation = model.decode(sample1) 
             
                 # save the last batch input and output of every epoch
                 if i == int(len(data)/val_loader.batch_size) - 1:
                     num_rows = 8
                     both = torch.cat((data.view(val_loader.batch_size, 1, 28, 28)[:8], 
                                     reconstruction.view(val_loader.batch_size, 1, 28, 28)[:8]))
+
+                    both_generation = torch.cat((data.view(val_loader.batch_size, 1, 28, 28)[:8], 
+                                    generation.view(val_loader.batch_size, 1, 28, 28)[:8]))
+
                     save_image(both.cpu(), f"../outputs/output{epoch}.png", nrow=num_rows)
+                    save_image(both_generation.cpu(), f"../outputs/generation{epoch}.png", nrow=num_rows)
+
         
         val_epoch_loss = running_loss/len(val_loader.dataset)
 
@@ -116,4 +134,6 @@ for epoch in range(epochs):
         val_loss.append(val_epoch_loss)
         print(f"Val Loss: {val_epoch_loss:.4f}")
 
-
+if args.saving_model: 
+            torch.save(model.state_dict(), model_path)
+            print("Model saved!")
